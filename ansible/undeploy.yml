@@ -1,0 +1,39 @@
+---
+- name: undeploy common cloudformation template resources.
+  hosts: 127.0.0.1
+  connection: local
+  gather_facts: False
+  vars:
+    delete_cloudformation_bucket: false
+  tasks:
+    - name: ensure cloudformation templates are removed from s3 bucket.
+      s3:
+        bucket: "{{ cloudformation_bucket }}"
+        object: "{{ item }}.json"
+        mode: delobj
+      with_items:
+        - ec2-elb
+        - ec2-instance-auto-scaling-cluster
+        - ec2-instance-public-self-healing
+        - ec2-instance-public
+        - ec2-security-group
+        - ec2-service-cluster
+        - ec2-service-interface
+        - elasticsearch
+        - rds-instance
+        - s3-bucket
+        - s3-cloudfront-website
+      when: delete_cloudformation_bucket|bool == False
+      tags:
+        - aws
+        - cloudformation
+        - delete
+    - name: delete the bucket and all contents
+      s3:
+        bucket: mybucket
+        mode: delete
+      when: delete_cloudformation_bucket|bool == True
+      tags:
+        - aws
+        - cloudformation
+        - delete

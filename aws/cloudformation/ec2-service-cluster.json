@@ -1,0 +1,420 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description": "This creates the resources for a scalable cluster for a service defaulting to run on Ubuntu 14.04, i.e. an auto scaling group.",
+    "Parameters": {
+        "Configuration" : {
+            "Default" : "",
+            "Description" : "Optional list of parameters that are passed to the launch configuration of the nodes.",
+            "Type" : "CommaDelimitedList"
+        },
+        "DesiredCapacityForCluster" : {
+            "Default" : "1",
+            "Description" : "Optional number of nodes that should be created within the service cluster.",
+            "MinValue": "1",
+            "Type": "Number"
+        },
+        "Fqdn": {
+            "Description" : "MOVE TO CONFIGURATION? The domain name that the service belongs too i.e. dev01.newedgeengineering.net, test01.newedgeengineering.net, newedgeengineering.net, etc",
+            "Type": "String"
+        },
+        "ElasticLoadBalancersForCluster": {
+            "Description": "List of elastic load balancers that communicate to the service cluster.",
+            "Type": "CommaDelimitedList"
+        },
+        "InstanceClass" : {
+            "Type" : "String",
+            "Description" : "Type of EC2 instance for nodes, default t2.micro",
+            "AllowedValues" : [
+                "t2.micro","t2.small","t2.medium","t2.large","m4.large","m4.xlarge","m4.2xlarge","m4.4xlarge","m4.10xlarge","m3.medium","m3.large","m3.xlarge","m3.2xlarge",
+                "c4.large","c4.xlarge","c4.2xlarge","c4.4xlarge","c4.8xlarge","c3.large","c3.xlarge","c3.2xlarge","c3.4xlarge","c3.8xlarge",
+                "r3.large","r3.xlarge","r3.2xlarge","r3.4xlarge","r3.8xlarge",
+                "i2.xlarge","i2.2xlarge","i2.4xlarge","i2.8xlarge","d2.xlarge","d2.2xlarge","d2.4xlarge","d2.8xlarge",
+                "g2.2xlarge","g2.8xlarge"
+            ],
+            "Default" : "t2.micro",
+            "ConstraintDescription" : "Instance class must be a valid AWS EC2 current generation instance type."
+        },
+        "KeyPairName" : {
+            "Type" : "AWS::EC2::KeyPair::KeyName",
+            "Description" : "Name of an existing EC2 KeyPair to enable internal SSH access to the nodes."
+        },
+        "MachineImage" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "Optional machine image to use in deployment of the nodes."
+        },
+        "MaxSizeForCluster" : {
+            "Default" : "1",
+            "Description" : "Optional maximum number of nodes that should be created within the service cluster.",
+            "MinValue": "1",
+            "Type": "Number"
+        },
+        "Network" : {
+            "Type" : "AWS::EC2::VPC::Id",
+            "Description" : "The VPC identifier for resources to be deployed within."
+        },
+        "NetworkCIDR" : {
+            "Type" : "String",
+            "AllowedPattern" : "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}",
+            "Description" : "The network Classless Inter-Domain Routing scheme.",
+            "ConstraintDescription" : "Malformed input-Parameter NetworkCIDR must be a valid CIDR block, i.e. 0.0.0.0/0"
+        },
+        "PrivateSubnets" : {
+            "Type" : "List<AWS::EC2::Subnet::Id>",
+            "Description" : "The subnets that the instance will be launch in too."
+        },
+        "RoleActions" : {
+            "Type" : "CommaDelimitedList",
+            "Default" : "",
+            "Description" : "Optional override list of IAM policy actions for the node profile."
+        },
+        "SecurityGroupsForCluster" : {
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>",
+            "Description" : "The security groups the EC2 instances will belong too."
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that these resources are being created for."
+        },
+        "TargetPort" : {
+            "Type" : "String",
+            "Description" : "The port number that the service cluster will accept incoming requests."
+        },
+        "Template" : {
+            "Type" : "String",
+            "Description" : "Name of the launch configuration template that defines the nodes (without the .json file extension)."
+        }
+    },
+    "Conditions" : {
+        "HasMachineImage" : { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "MachineImage" }, "" ] } ] },
+        "HasRoleActions" : { "Fn::Not" : [ { "Fn::Equals" : [ { "Fn::Join" : [ "",  { "Ref" : "RoleActions" } ] }, "" ] } ] }
+    },
+    "Mappings": {
+        "AWSInstanceType2Arch": {
+            "t2.micro":    { "Arch": "HVM64" },
+            "t2.small":    { "Arch": "HVM64" },
+            "t2.medium":   { "Arch": "HVM64" },
+            "t2.large":    { "Arch": "HVM64" },
+
+            "m4.large":    { "Arch": "HVM64" },
+            "m4.xlarge":   { "Arch": "HVM64" },
+            "m4.2xlarge":  { "Arch": "HVM64" },
+            "m4.4xlarge":  { "Arch": "HVM64" },
+            "m4.10xlarge": { "Arch": "HVM64" },
+            "m3.medium":   { "Arch": "HVM64" },
+            "m3.large":    { "Arch": "HVM64" },
+            "m3.xlarge":   { "Arch": "HVM64" },
+            "m3.2xlarge":  { "Arch": "HVM64" },
+
+            "c4.large":    { "Arch": "HVM64" },
+            "c4.xlarge":   { "Arch": "HVM64" },
+            "c4.2xlarge":  { "Arch": "HVM64" },
+            "c4.4xlarge":  { "Arch": "HVM64" },
+            "c4.8xlarge":  { "Arch": "HVM64" },
+            "c3.large":    { "Arch": "HVM64" },
+            "c3.xlarge":   { "Arch": "HVM64" },
+            "c3.2xlarge":  { "Arch": "HVM64" },
+            "c3.4xlarge":  { "Arch": "HVM64" },
+            "c3.8xlarge":  { "Arch": "HVM64" },
+
+            "r3.large":    { "Arch": "HVM64" },
+            "r3.xlarge":   { "Arch": "HVM64" },
+            "r3.2xlarge":  { "Arch": "HVM64" },
+            "r3.4xlarge":  { "Arch": "HVM64" },
+            "r3.8xlarge":  { "Arch": "HVM64" },
+
+            "i2.xlarge":   { "Arch": "HVM64" },
+            "i2.2xlarge":  { "Arch": "HVM64" },
+            "i2.4xlarge":  { "Arch": "HVM64" },
+            "i2.8xlarge":  { "Arch": "HVM64" },
+            "d2.xlarge":   { "Arch": "HVM64" },
+            "d2.2xlarge":  { "Arch": "HVM64" },
+            "d2.4xlarge":  { "Arch": "HVM64" },
+            "d2.8xlarge":  { "Arch": "HVM64" },
+
+            "g2.2xlarge":  { "Arch": "HVMG2" },
+            "g2.8xlarge":  { "Arch": "HVMG2" }
+        },
+        "AWSRegionArch2AMI": {
+            "us-east-1": {
+                "PV64": "ami-27630d42",
+                "HVM64": "ami-2d630d48",
+                "HVMG2": "ami-e698da8e"
+            },
+            "us-west-2": {
+                "PV64": "ami-cd3c21fd",
+                "HVM64": "ami-333f2203",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "us-west-1": {
+                "PV64": "ami-3b2dd77f",
+                "HVM64": "ami-c12dd785",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "eu-west-1": {
+                "PV64": "ami-9f2f0fe8",
+                "HVM64": "ami-992f0fee",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "eu-central-1": {
+                "PV64": "ami-6665657b",
+                "HVM64": "ami-9e656583",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-southeast-1": {
+                "PV64": "ami-90c2c8c2",
+                "HVM64": "ami-9ac2c8c8",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-northeast-1": {
+                "PV64": "ami-0641ca06",
+                "HVM64": "ami-0e41ca0e",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-southeast-2": {
+                "PV64": "ami-ff2b64c5",
+                "HVM64": "ami-eb2b64d1",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "sa-east-1": {
+                "PV64": "ami-51db4e4c",
+                "HVM64": "ami-49db4e54",
+                "HVMG2": "NOT_SUPPORTED"
+            },
+            "cn-north-1": {
+                "PV64": "UNKNOWN",
+                "HVM64": "UNKNOWN",
+                "HVMG2": "NOT_SUPPORTED"
+            }
+        }
+    },
+    "Resources" : {
+        "SecurityGroupForNodes" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : { "Fn::Join" : [ " ", [ "Incoming web access to port(s)", { "Ref" : "TargetPort" } ] ] },
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": { "Ref" : "TargetPort" },
+                        "ToPort": { "Ref" : "TargetPort" },
+                        "CidrIp": { "Ref" : "NetworkCIDR" }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Fn::Join" : [ " ", [ { "Ref" : "Service" }, "EC2 instance access" ] ] }
+                    }
+                ],
+                "VpcId" : { "Ref" : "Network" }
+            }
+        },
+        "WaitHandleForCluster" : {
+            "Type" : "AWS::CloudFormation::WaitConditionHandle"
+        },
+        "WaitConditionForCluster" : {
+            "Type" : "AWS::CloudFormation::WaitCondition",
+            "Properties" : {
+                "Handle"  : { "Ref" : "WaitHandleForCluster" },
+                "Count"   : { "Ref" : "DesiredCapacityForCluster" },
+                "Timeout" : "900"
+            },
+            "DependsOn" : "AutoScalingGroupStackForCluster"
+        },
+        "RoleForCluster" : {
+            "Type": "AWS::IAM::Role",
+            "Properties": {
+                "AssumeRolePolicyDocument": {
+                    "Statement": [
+                        {
+                            "Effect": "Allow",
+                            "Principal": {
+                                "Service": [ "ec2.amazonaws.com" ]
+                            },
+                            "Action": [ "sts:AssumeRole" ]
+                        }
+                    ]
+                },
+                "Path": "/",
+                "Policies": [{
+                    "PolicyName" : { "Ref" : "Service" },
+                    "PolicyDocument" :
+                    {
+                        "Statement" :
+                        [
+                            {
+                                "Effect":"Allow",
+                                "Action": { "Fn::If" : [
+                                    "HasRoleActions",
+                                    { "Ref" : "RoleActions" },
+                                    [
+                                        "cloudformation:DescribeStackResource",
+                                        "ec2:DescribeInstances"
+                                    ]
+                                ] },
+                                "Resource":"*"
+                            }
+                        ]
+                    }
+                }]
+            }
+        },
+        "StackForClusterLaunchConfig" : {
+            "Type" : "AWS::CloudFormation::Stack",
+            "Properties" : {
+                "TemplateURL" : { "Fn::Join" : [ "", [ "https://s3.amazonaws.com/", { "Ref" : "AWS::AccountId" }, "-", { "Ref" : "AWS::Region"}, "-", "net-newedgeengineering-cloudformation/", { "Ref" : "Template" }, ".json" ] ] },
+                "Parameters" : {
+                    "Domain" : { "Ref": "Fqdn" },
+                    "MachineImage" : {
+                        "Fn::If": [
+                            "HasMachineImage",
+                            { "Ref" : "MachineImage" },
+                            { "Fn::FindInMap": [ "AWSRegionArch2AMI", { "Ref": "AWS::Region" }, { "Fn::FindInMap": [ "AWSInstanceType2Arch", { "Ref": "InstanceClass" }, "Arch" ] } ] }
+                         ]
+                     },
+                    "InstanceClass" : { "Ref" : "InstanceClass" },
+                    "KeyPairName" : { "Ref" : "KeyPairName" },
+                    "SecurityList" : { "Fn::Join" : [ ",", [ { "Ref" : "SecurityGroupForNodes" }, { "Fn::Join" : [ ",", { "Ref" : "SecurityGroupsForCluster" } ] } ] ] },
+                    "ServiceClientWaitHandle" : { "Ref" : "WaitHandleForCluster" },
+                    "ServiceRole" : { "Ref" : "RoleForCluster" },
+                    "Configuration": { "Fn::Join" : [ ",", { "Ref" : "Configuration" } ] }
+                }
+            }
+        },
+        "AutoScalingGroupStackForCluster": {
+            "Type": "AWS::AutoScaling::AutoScalingGroup",
+            "Properties": {
+                "AvailabilityZones": [
+                    { "Fn::Select" : [ "0", { "Fn::GetAZs" : { "Ref" : "AWS::Region" } } ] },
+                    { "Fn::Select" : [ "1", { "Fn::GetAZs" : { "Ref" : "AWS::Region" } } ] },
+                    { "Fn::Select" : [ "2", { "Fn::GetAZs" : { "Ref" : "AWS::Region" } } ] }
+                ],
+                "DesiredCapacity" : { "Ref" : "DesiredCapacityForCluster" },
+                "HealthCheckGracePeriod" : 120,
+                "LaunchConfigurationName": { "Fn::GetAtt": [ "StackForClusterLaunchConfig", "Outputs.Name" ] },
+                "LoadBalancerNames": { "Ref" : "ElasticLoadBalancersForCluster" },
+                "MetricsCollection": [
+                    {
+                        "Granularity": "1Minute"
+                    }
+                ],
+                "MinSize": "1",
+                "MaxSize": { "Ref" : "MaxSizeForCluster" },
+                "Tags" : [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Ref" : "Service" },
+                        "PropagateAtLaunch" : "true"
+                    },
+                    {
+                        "Key": "CreationType",
+                        "Value": "CloudFormation",
+                        "PropagateAtLaunch" : "true"
+                    },
+                    {
+                        "Key": "CreatedBy",
+                        "Value": { "Ref": "AWS::StackId" },
+                        "PropagateAtLaunch" : "true"
+                    }
+                ],
+                "VPCZoneIdentifier" : { "Ref" : "PrivateSubnets" }
+            }
+        },
+
+        "ScalingUpPolicyForCluster" : {
+            "Type" : "AWS::AutoScaling::ScalingPolicy",
+            "Properties" : {
+                "AdjustmentType" : "ChangeInCapacity",
+                "AutoScalingGroupName" : { "Ref" : "AutoScalingGroupStackForCluster" },
+                "Cooldown" : "1",
+                "ScalingAdjustment" : "1"
+            }
+        },
+        "ScalingDownPolicyForCluster" : {
+            "Type" : "AWS::AutoScaling::ScalingPolicy",
+            "Properties" : {
+                "AdjustmentType" : "ChangeInCapacity",
+                "AutoScalingGroupName" : { "Ref" : "AutoScalingGroupStackForCluster" },
+                "Cooldown" : "10",
+                "ScalingAdjustment" : "-1"
+            }
+        },
+        "AlarmForHighNodeCPU": {
+            "Type" : "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmDescription": "Alarm if aggregate CPU too high ie. > 90% for 5 minutes",
+                "Namespace": "AWS/EC2",
+                "MetricName": "CPUUtilization",
+                "Statistic": "Average",
+                "Dimensions": [
+                    {
+                        "Name": "AutoScalingGroupName",
+                        "Value": { "Ref": "AutoScalingGroupStackForCluster" }
+                    }
+                ],
+                "Period": "60",
+                "Threshold": "90",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "EvaluationPeriods": "1",
+                "AlarmActions": [ { "Ref": "ScalingUpPolicyForCluster" } ]
+            }
+        },
+        "AlarmForLowNodeCPU": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmDescription": "Scale-down if CPU < 5% for 10 minutes",
+                "Namespace": "AWS/EC2",
+                "MetricName": "CPUUtilization",
+                "Statistic": "Average",
+                "Dimensions": [
+                    {
+                        "Name": "AutoScalingGroupName",
+                        "Value": { "Ref": "AutoScalingGroupStackForCluster" }
+                    }
+                ],
+                "Period": "300",
+                "Threshold": "5",
+                "ComparisonOperator": "LessThanThreshold",
+                "EvaluationPeriods": "2",
+                "AlarmActions": [ { "Ref": "ScalingDownPolicyForCluster" } ]
+            }
+        },
+        "AlarmForTooManyUnhealthyNodes": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmDescription": "Alarm if there are any unhealthy hosts.",
+                "Namespace": "AWS/ELB",
+                "MetricName": "UnHealthyHostCount",
+                "Statistic": "Average",
+                "Dimensions": [ {
+                    "Name": "LoadBalancerName",
+                    "Value": { "Fn::Select" : [ "0", { "Ref": "ElasticLoadBalancersForCluster" } ] }
+                } ],
+                "Period": "300",
+                "EvaluationPeriods": "1",
+                "Threshold": "0",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "AlarmActions": [ { "Ref": "ScalingUpPolicyForCluster" } ]
+            }
+        },
+        "AlarmForHighRequestLatency": {
+            "Type": "AWS::CloudWatch::Alarm",
+            "Properties": {
+                "AlarmDescription": "Alarm if request latency > ",
+                "Namespace": "AWS/ELB",
+                "MetricName": "Latency",
+                "Dimensions": [ {
+                    "Name": "LoadBalancerName",
+                    "Value": { "Fn::Select" : [ "0", { "Ref": "ElasticLoadBalancersForCluster" } ] }
+                } ],
+                "Statistic": "Average",
+                "Period": "300",
+                "EvaluationPeriods": "1",
+                "Threshold": "1",
+                "ComparisonOperator": "GreaterThanThreshold",
+                "AlarmActions": [ { "Ref": "ScalingUpPolicyForCluster" } ]
+            }
+        }
+    }
+}

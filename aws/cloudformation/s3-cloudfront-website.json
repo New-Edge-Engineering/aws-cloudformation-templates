@@ -1,0 +1,182 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "CloudFormation that will create a Route53 record set (domain) that provides access to content held within a Simple Storage Service via a CloudFront distribution. The contents of the S3 bucket needs to be uploaded after template execution.",
+    "Parameters": {
+        "Certificate" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "Amazon Resource Name of the certification to be used by cloudfront."
+        },
+        "DeleteS3Bucket" : {
+            "AllowedValues" : [ "Yes", "No" ],
+            "Default" : "No",
+            "Description" : "Whether to delete the s3 bucket when the cloudformation is destroyed.",
+            "Type": "String"
+        },
+        "Domain": {
+            "Description": "The top level domain plus the business organisation name, i.e. example.com, to use with route 53.",
+            "MaxLength":"256",
+            "MinLength":"3",
+            "Type": "String"
+        },
+        "HostedZone": {
+            "Type": "String",
+            "Description" : "The hosted zone identifier to associate the server fully qualified domain name with."
+        },
+        "OriginAccessIdentity": {
+            "Description": "The manually created CloudFront Origin Access Identity",
+            "Type": "String"
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that the node configuration is being created for."
+        },
+        "Subdomain": {
+            "Description": "The subdomain of the website to be served up by S3, i.e. www",
+            "Type": "String"
+        }
+    },
+    "Conditions" : {
+        "IsInsecure": { "Fn::Equals" : [ { "Ref" : "Certificate" }, "" ] },
+        "IsSecure": { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "Certificate" }, "" ] } ] }
+    },
+    "Resources" : {
+        "StackForS3BucketWebsite" : {
+            "Type" : "AWS::CloudFormation::Stack",
+            "Properties" : {
+                "TemplateURL" : { "Fn::Join" : [ "", [ "https://s3.amazonaws.com/", { "Ref" : "AWS::AccountId" }, "-", { "Ref" : "AWS::Region"}, "-", "net-newedgeengineering-cloudformation/001-s3-bucket.json" ] ] },
+                "Parameters" : {
+                    "AccessControl" : "PublicRead",
+                    "Delete" : { "Ref" : "DeleteS3Bucket" },
+                    "Name": { "Fn::Join" : [ "-", [ { "Ref" : "AWS::AccountId" }, { "Ref" : "AWS::Region" }, { "Ref" : "Subdomain" } ] ] },
+                    "Service" : { "Ref" : "Service" }
+                }
+            }
+        },
+        "S3BucketPolicyForWebsite" : {
+            "Type" : "AWS::S3::BucketPolicy",
+            "Properties" : {
+                "PolicyDocument" : {
+                    "Version": "2008-10-17",
+                    "Id": "PolicyForCloudFrontPrivateContent",
+                    "Statement": [ {
+                        "Sid": "1",
+                        "Effect": "Allow",
+                        "Principal": {
+                            "AWS": { "Fn::Join" : [ "", [ "arn:aws:iam::cloudfront:user/CloudFront Origin Access Identity ", { "Ref" : "OriginAccessIdentity" } ] ] }
+                        },
+                        "Action": "s3:GetObject",
+                        "Resource": { "Fn::Join" : [ "", [ "arn:aws:s3:::", { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] }, "/*" ] ] }
+                    } ]
+                },
+                "Bucket" : { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] }
+            }
+        },
+        "CloudFrontDistributionForWebsite" : {
+            "Type":"AWS::CloudFront::Distribution",
+            "Condition" : "IsInsecure",
+            "Properties" : {
+                "DistributionConfig" : {
+                    "Aliases" : [
+                        { "Fn::Join" : [ "", [ { "Ref" : "Subdomain" }, ".", { "Ref" : "Domain" } ] ] }
+                    ],
+                    "Comment" : { "Fn::Join" : [ "", [ "Content Distribution Network for ", { "Ref" : "Subdomain" }, " s3 bucket." ] ] },
+                    "DefaultCacheBehavior" : {
+                        "TargetOriginId" : { "Fn::Join" : [ "", [ "Origin", { "Ref" : "Service"} ] ] },
+                        "ForwardedValues" : {
+                            "QueryString" : true
+                        },
+                        "ViewerProtocolPolicy" : "allow-all"
+                    },
+                    "DefaultRootObject" : "index.html",
+                    "Enabled" : true,
+                    "Origins" : [ {
+                        "DomainName" : { "Fn::Join" : [ "", [ { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] }, ".s3.amazonaws.com" ] ] },
+                        "Id" : { "Fn::Join" : [ "", [ "Origin", { "Ref" : "Service"} ] ] },
+                        "S3OriginConfig" : {
+                            "OriginAccessIdentity" : { "Fn::Join" : [ "", [ "origin-access-identity/cloudfront/", { "Ref" : "OriginAccessIdentity" } ] ] }
+                        }
+                    } ]
+                }
+            },
+            "DependsOn" : "StackForS3BucketWebsite"
+        },
+        "SecureCloudFrontDistributionForWebsite" : {
+            "Type":"AWS::CloudFront::Distribution",
+            "Condition" : "IsSecure",
+            "Properties" : {
+                "DistributionConfig" : {
+                    "Aliases" : [
+                        { "Fn::Join" : [ "", [ { "Ref" : "Subdomain" }, ".", { "Ref" : "Domain" } ] ] }
+                    ],
+                    "Comment" : { "Fn::Join" : [ "", [ "Content Distribution Network for ", { "Ref" : "Subdomain" }, " s3 bucket." ] ] },
+                    "DefaultCacheBehavior" : {
+                        "TargetOriginId" : { "Fn::Join" : [ "", [ "Origin", { "Ref" : "Service"} ] ] },
+                        "ForwardedValues" : {
+                            "QueryString" : true
+                        },
+                        "ViewerProtocolPolicy" : "redirect-to-https"
+                    },
+                    "DefaultRootObject" : "index.html",
+                    "Enabled" : true,
+                    "Origins" : [ {
+                        "DomainName" : { "Fn::Join" : [ "", [ { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] }, ".s3.amazonaws.com" ] ] },
+                        "Id" : { "Fn::Join" : [ "", [ "Origin", { "Ref" : "Service"} ] ] },
+                        "S3OriginConfig" : {
+                            "OriginAccessIdentity" : { "Fn::Join" : [ "", [ "origin-access-identity/cloudfront/", { "Ref" : "OriginAccessIdentity" } ] ] }
+                        }
+                    } ],
+                    "ViewerCertificate" : {
+                        "AcmCertificateArn" : { "Ref" : "Certificate" },
+                        "SslSupportMethod" : "sni-only"
+                    }
+                }
+            },
+
+            "DependsOn" : "StackForS3BucketWebsite"
+        },
+        "Route53RecordSetForWebsite" : {
+            "Type" : "AWS::Route53::RecordSet",
+            "Properties" : {
+                "Comment" : { "Fn::Join" : [ "", [ "CNAME for ", { "Fn::GetAtt":[ "StackForS3BucketWebsite","Outputs.DomainName" ] }, " S3 bucket." ] ] },
+                "HostedZoneId" : { "Ref" : "HostedZone" },
+                "Name" : { "Fn::Join" : [ "", [ { "Ref" : "Subdomain" }, ".", { "Ref" : "Domain" }, "." ] ] },
+                "Type" : "CNAME",
+                "TTL" : "900",
+                "ResourceRecords" : [
+                    { "Fn::If" : [
+                        "IsSecure",
+                        { "Fn::GetAtt":[ "SecureCloudFrontDistributionForWebsite", "DomainName" ] },
+                        { "Fn::GetAtt":[ "CloudFrontDistributionForWebsite", "DomainName" ] }
+                    ] }
+                ]
+            }
+        }
+    },
+    "Outputs" : {
+        "Distribution": {
+          "Value": { "Ref" : "SecureCloudFrontDistributionForWebsite" },
+          "Description" : "The identifier of the CloudFront distribution channel created."
+        },
+        "Domain": {
+            "Value" : { "Ref" : "Route53RecordSetForWebsite" },
+            "Description" : "Domain create for the website being hosted."
+        },
+        "HttpURL": {
+            "Value" : { "Fn::Join" : [ "", [ "http://", { "Ref" : "Route53RecordSetForWebsite" } ] ] },
+            "Description" : "The URL for the website being hosted. Make sure all uploaded content is made to be public, otherwise 403 error."
+        },
+        "HttpsURL" : {
+            "Value" : { "Fn::Join" : [ "", [ "https://", { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] } ] ] },
+            "Description" : "The Secure URL of S3 bucket to hold website content."
+        },
+        "S3BucketForWebsite": {
+            "Value" : { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.Reference" ] },
+            "Description" : "The name of the S3 bucket created."
+        },
+        "S3BucketForWebsiteURL" : {
+            "Value" : { "Fn::GetAtt" : [ "StackForS3BucketWebsite", "Outputs.WebsiteURL" ] },
+            "Description" : "The S3 URL for website hosted on S3."
+        }
+    }
+}

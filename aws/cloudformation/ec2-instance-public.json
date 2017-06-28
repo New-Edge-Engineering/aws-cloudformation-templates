@@ -1,0 +1,228 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "CloudFormation that will create the AWS resources for an instance.",
+    "Parameters" : {
+        "Access" : {
+            "Type" : "String",
+            "Description" : "Type of node, public or private",
+            "Default" : "public",
+            "AllowedValues" : [ "public", "private" ]
+        },
+        "Configuration" : {
+            "Default" : "",
+            "Description" : "List of parameters passed to the launch configuration.",
+            "Type" : "CommaDelimitedList"
+        },
+        "Fqdn": {
+            "Type": "String",
+            "Description" : "The domain name to be associated with the instance, i.e. bastion.[dev01|test01|stage01|prod01].newedgeengineering.net"
+        },
+        "HostedZone": {
+            "Type": "String",
+            "Description" : "The hosted zone identifier to associate the server fully qualified domain name with."
+        },
+        "InstanceType" : {
+            "Type" : "String",
+            "Description" : "Type of EC2 instance for server, default t2.micro",
+            "AllowedValues" : [
+                "t2.micro","t2.small","t2.medium","t2.large","m4.large","m4.xlarge","m4.2xlarge","m4.4xlarge","m4.10xlarge","m3.medium","m3.large","m3.xlarge","m3.2xlarge",
+                "c4.large","c4.xlarge","c4.2xlarge","c4.4xlarge","c4.8xlarge","c3.large","c3.xlarge","c3.2xlarge","c3.4xlarge","c3.8xlarge",
+                "r3.large","r3.xlarge","r3.2xlarge","r3.4xlarge","r3.8xlarge",
+                "i2.xlarge","i2.2xlarge","i2.4xlarge","i2.8xlarge","d2.xlarge","d2.2xlarge","d2.4xlarge","d2.8xlarge",
+                "g2.2xlarge","g2.8xlarge"
+            ],
+            "Default" : "t2.micro",
+            "ConstraintDescription" : "must be a valid AWS EC2 current generation instance type."
+        },
+        "KeyPairName" : {
+            "Type" : "AWS::EC2::KeyPair::KeyName",
+            "Description" : "Name of an existing EC2 KeyPair to enable SSH access to the web server."
+        },
+        "MachineImage" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "Optional machine image to use in the deployment."
+        },
+        "Network" : {
+            "Type" : "AWS::EC2::VPC::Id",
+            "Description" : "The VPC identifier for resources to be associated with."
+        },
+        "SecurityList" : {
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>",
+            "Description" : "A list of security groups the EC2 instance will belong too."
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that the node configuration is being created for."
+        },
+        "Subnet" : {
+            "Type" : "AWS::EC2::Subnet::Id",
+            "Description" : "The subnet that the instance will be launch in too."
+        },
+        "Template" : {
+            "Type" : "String",
+            "Description" : "Name of the bespoke instance template without the .json file extension."
+        }
+    },
+    "Mappings": {
+        "AWSInstanceType2Arch": {
+            "t2.micro":    { "Arch": "HVM64" },
+            "t2.small":    { "Arch": "HVM64" },
+            "t2.medium":   { "Arch": "HVM64" },
+            "t2.large":    { "Arch": "HVM64" },
+
+            "m4.large":    { "Arch": "HVM64" },
+            "m4.xlarge":   { "Arch": "HVM64" },
+            "m4.2xlarge":  { "Arch": "HVM64" },
+            "m4.4xlarge":  { "Arch": "HVM64" },
+            "m4.10xlarge": { "Arch": "HVM64" },
+            "m3.medium":   { "Arch": "HVM64" },
+            "m3.large":    { "Arch": "HVM64" },
+            "m3.xlarge":   { "Arch": "HVM64" },
+            "m3.2xlarge":  { "Arch": "HVM64" },
+
+            "c4.large":    { "Arch": "HVM64" },
+            "c4.xlarge":   { "Arch": "HVM64" },
+            "c4.2xlarge":  { "Arch": "HVM64" },
+            "c4.4xlarge":  { "Arch": "HVM64" },
+            "c4.8xlarge":  { "Arch": "HVM64" },
+            "c3.large":    { "Arch": "HVM64" },
+            "c3.xlarge":   { "Arch": "HVM64" },
+            "c3.2xlarge":  { "Arch": "HVM64" },
+            "c3.4xlarge":  { "Arch": "HVM64" },
+            "c3.8xlarge":  { "Arch": "HVM64" },
+
+            "r3.large":    { "Arch": "HVM64" },
+            "r3.xlarge":   { "Arch": "HVM64" },
+            "r3.2xlarge":  { "Arch": "HVM64" },
+            "r3.4xlarge":  { "Arch": "HVM64" },
+            "r3.8xlarge":  { "Arch": "HVM64" },
+
+            "i2.xlarge":   { "Arch": "HVM64" },
+            "i2.2xlarge":  { "Arch": "HVM64" },
+            "i2.4xlarge":  { "Arch": "HVM64" },
+            "i2.8xlarge":  { "Arch": "HVM64" },
+            "d2.xlarge":   { "Arch": "HVM64" },
+            "d2.2xlarge":  { "Arch": "HVM64" },
+            "d2.4xlarge":  { "Arch": "HVM64" },
+            "d2.8xlarge":  { "Arch": "HVM64" },
+
+            "g2.2xlarge":  { "Arch": "HVMG2" },
+            "g2.8xlarge":  { "Arch": "HVMG2" }
+        },
+        "AWSRegionArch2AMI": {
+            "us-east-1": {
+                "PV64": "ami-27630d42",
+                "HVM64": "ami-2d630d48",
+                "HVMG2": "ami-e698da8e"
+            },
+            "us-west-2": {
+                "PV64": "ami-cd3c21fd",
+                "HVM64": "ami-333f2203",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "us-west-1": {
+                "PV64": "ami-3b2dd77f",
+                "HVM64": "ami-c12dd785",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "eu-west-1": {
+                "PV64": "ami-9f2f0fe8",
+                "HVM64": "ami-992f0fee",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "eu-central-1": {
+                "PV64": "ami-6665657b",
+                "HVM64": "ami-9e656583",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-southeast-1": {
+                "PV64": "ami-90c2c8c2",
+                "HVM64": "ami-9ac2c8c8",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-northeast-1": {
+                "PV64": "ami-0641ca06",
+                "HVM64": "ami-0e41ca0e",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "ap-southeast-2": {
+                "PV64": "ami-ff2b64c5",
+                "HVM64": "ami-eb2b64d1",
+                "HVMG2": "NEED_TO_BUILD_http://tleyden.github.io/blog/2014/10/25/cuda-6-dot-5-on-aws-gpu-instance-running-ubuntu-14-dot-04/"
+            },
+            "sa-east-1": {
+                "PV64": "ami-51db4e4c",
+                "HVM64": "ami-49db4e54",
+                "HVMG2": "NOT_SUPPORTED"
+            },
+            "cn-north-1": {
+                "PV64": "UNKNOWN",
+                "HVM64": "UNKNOWN",
+                "HVMG2": "NOT_SUPPORTED"
+            }
+        }
+    },
+    "Conditions" : {
+        "HasMachineImage" : { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "MachineImage" }, "" ] } ] },
+        "IsPublic" : { "Fn::Equals" : [ { "Ref" : "Access"}, "public" ] },
+        "IsPrivate" : { "Fn::Equals" : [ { "Ref" : "Access"}, "private" ] }
+    },
+    "Resources" : {
+        "Instance" : {
+            "Type" : "AWS::CloudFormation::Stack",
+            "Properties" : {
+                "TemplateURL" : { "Fn::Join" : [ "", [ "https://s3.amazonaws.com/", { "Ref" : "AWS::AccountId" }, "-", { "Ref" : "AWS::Region"}, "-", "net-newedgeengineering-cloudformation/", { "Ref" : "Template" }, ".json" ] ] },
+                "Parameters" : {
+                    "Service" : { "Ref" : "Service" },
+                    "KeyPairName" : { "Ref" : "KeyPairName" },
+                    "Subnet" : { "Ref" : "Subnet" },
+                    "InstanceClass" : { "Ref" : "InstanceType" },
+                    "MachineImage" : {
+                        "Fn::If": [
+                            "HasMachineImage",
+                            { "Ref" : "MachineImage" },
+                            { "Fn::FindInMap": [ "AWSRegionArch2AMI", { "Ref": "AWS::Region" }, { "Fn::FindInMap": [ "AWSInstanceType2Arch", { "Ref": "InstanceType" }, "Arch" ] } ] }
+                         ]
+                     },
+                    "SecurityList" : { "Fn::Join" : [ ",", { "Ref" : "SecurityList" } ] },
+                    "Configuration" : { "Fn::Join" : [ ",", { "Ref" : "Configuration" } ] }
+                }
+            }
+        },
+        "IPAddress" : {
+            "Type": "AWS::EC2::EIP",
+            "Condition" : "IsPublic",
+            "Properties": {
+                "Domain": { "Ref" : "Network" },
+                "InstanceId": { "Fn::GetAtt": [ "Instance", "Outputs.Instance" ] }
+            }
+        },
+        "DNSName" : {
+            "Type": "AWS::Route53::RecordSet",
+            "Condition" : "IsPublic",
+            "Properties": {
+                "HostedZoneId": { "Ref" : "HostedZone" },
+                "Comment": "Friendly name for bastion host",
+                "Name": { "Ref": "Fqdn" },
+                "Type": "A",
+                "TTL": "900",
+                "ResourceRecords": [
+                    { "Ref": "IPAddress" }
+                ]
+            }
+        }
+    },
+    "Outputs" : {
+        "Domain": {
+            "Value" : { "Ref" : "DNSName" },
+            "Condition" : "IsPublic",
+            "Description" : "The public domain name of the node."
+        },
+        "PrivateIP" : {
+            "Value" : { "Fn::GetAtt" : [ "Instance", "Outputs.PrivateIP" ] },
+            "Condition" : "IsPrivate",
+            "Description" : "The private IP address of the node."
+        }
+    }
+}

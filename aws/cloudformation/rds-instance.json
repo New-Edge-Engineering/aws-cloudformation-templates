@@ -1,0 +1,189 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description": "CloudFormation template that creates an instance of a relational database service that defaults to postgreSQL.",
+    "Parameters": {
+        "BackupSnapshot" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "The RDS snapshot to create the database from, blank to create new database"
+        },
+        "DBSubnetGroup" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "The name of the RDS subnets group."
+        },
+        "Delete" : {
+            "AllowedValues" : [ "Yes", "No" ],
+            "Default" : "No",
+            "Description" : "Whether to snapshot the rds instance before deleting the database when the cloudformation is destroyed.",
+            "Type": "String"
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that database is being created for."
+        },
+        "InstanceClass" : {
+            "Type" : "String",
+            "Default" : "db.t2.micro",
+            "AllowedValues" : [
+                "db.t1.micro", "db.m1.small",
+                "db.m3.medium", "db.m3.large", "db.m3.xlarge", "db.m3.2xlarge",
+                "db.r3.large", "db.r3.xlarge", "db.r3.2xlarge", "db.r3.4xlarge", "db.r3.8xlarge",
+                "db.t2.micro", "db.t2.small", "db.t2.medium", "db.t2.large"
+            ],
+            "Description" : "Type of RDS instance for database"
+        },
+        "InstanceEngine" : {
+            "Type" : "String",
+            "Default" : "postgres",
+            "AllowedValues" : [ "mysql", "postgres", "oracle-se1", "oracle-se", "oracle-ee", "sqlserver-ex", "sqlserver-web", "sqlserver-se", "sqlserver-ee" ],
+            "Description" : "Type of RDS engine for instance"
+        },
+        "InstanceEngineVersion": {
+            "Type" : "String",
+            "Default" : "9.4.5",
+            "Description" : "Version of RDS engine instance"
+        },
+        "License" : {
+            "Type" : "String",
+            "Default" : "postgresql-license",
+            "AllowedValues" : [ "postgresql-license", "bring-your-own-license", "license-included", "general-public-license" ],
+            "Description" : "Type of license to use with RDS instance"
+        },
+        "MultiAZ" : {
+            "Type" : "String",
+            "Default" : "false",
+            "AllowedValues" : [ "true", "false" ],
+            "Description" : "If the RDS instance is deployed in multiple availability zones"
+        },
+        "Network" : {
+            "Type" : "AWS::EC2::VPC::Id",
+            "Description" : "The VPC identifier for resources to be associated with."
+        },
+        "NetworkCIDR" : {
+            "Type" : "String",
+            "AllowedPattern" : "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}",
+            "Description" : "The secure IP address range for nodes to access the database across the network.",
+            "ConstraintDescription" : "Malformed input-Parameter NetworkCIDR must be a valid CIDR block, i.e. 0.0.0.0/0"
+        },
+        "Password" : {
+            "Type" : "String",
+            "Default" : "postgres",
+            "NoEcho" : "True",
+            "Description" : "The master password for the RDS instance."
+        },
+        "StorageSize" : {
+            "Type" : "Number",
+            "Default" : 5,
+            "Description" : "The number of GB the RDS instance should store."
+        },
+        "TargetPort" : {
+            "Type" : "Number",
+            "Description" : "The port number the service will be listening on for the nodes to connect to the database."
+        },
+        "Username" : {
+            "Type" : "String",
+            "Default" : "postgres",
+            "Description" : "The master user name for the RDS instance."
+        }
+    },
+    "Conditions" : {
+        "DeleteDatabase" : { "Fn::Equals" : [ { "Ref" : "Delete" }, "Yes" ] },
+        "SnapshotDatabase" : { "Fn::Equals" : [ { "Ref" : "Delete" }, "No" ] }
+    },
+    "Resources": {
+        "SecurityGroupForRDSInstance" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : { "Fn::Join" : [ " ", [ "Security group used to provide access to", { "Ref": "Service" }, "RDS" ] ] },
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": { "Ref" : "TargetPort" },
+                        "ToPort": { "Ref" : "TargetPort" },
+                        "CidrIp": { "Ref" : "NetworkCIDR" }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key" : "Name",
+                        "Value" : { "Ref": "Service" }
+                    }
+                ],
+                "VpcId" : { "Ref" : "Network" }
+            }
+        },
+        "RetainedDatabase" : {
+            "Type" : "AWS::RDS::DBInstance",
+            "Condition" : "SnapshotDatabase",
+            "Properties" : {
+                "AllocatedStorage" : { "Ref" : "StorageSize" },
+                "BackupRetentionPeriod" : "28",
+                "DBInstanceClass" : { "Ref" : "InstanceClass" },
+                "DBSnapshotIdentifier": { "Ref" : "BackupSnapshot" },
+                "DBSubnetGroupName" : { "Ref" : "DBSubnetGroup" },
+                "Engine" : { "Ref" : "InstanceEngine" },
+                "EngineVersion": { "Ref": "InstanceEngineVersion" },
+                "LicenseModel" : { "Ref" : "License" },
+                "MasterUsername" : { "Ref" : "Username" },
+                "MasterUserPassword" : { "Ref" : "Password" },
+                "MultiAZ" : { "Ref" : "MultiAZ" },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Ref": "Service" }
+                    }
+                ],
+                "VPCSecurityGroups" : [ { "Ref" : "SecurityGroupForRDSInstance" } ]
+            },
+            "DeletionPolicy" : "Snapshot"
+        },
+        "DeletedDatabase" : {
+            "Type" : "AWS::RDS::DBInstance",
+            "Condition" : "DeleteDatabase",
+            "Properties" : {
+                "AllocatedStorage" : { "Ref" : "StorageSize" },
+                "BackupRetentionPeriod" : "28",
+                "DBInstanceClass" : { "Ref" : "InstanceClass" },
+                "DBSnapshotIdentifier": { "Ref" : "BackupSnapshot" },
+                "DBSubnetGroupName" : { "Ref" : "DBSubnetGroup" },
+                "Engine" : { "Ref" : "InstanceEngine" },
+                "EngineVersion": { "Ref": "InstanceEngineVersion" },
+                "LicenseModel" : { "Ref" : "License" },
+                "MasterUsername" : { "Ref" : "Username" },
+                "MasterUserPassword" : { "Ref" : "Password" },
+                "MultiAZ" : { "Ref" : "MultiAZ" },
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Ref": "Service" }
+                    }
+                ],
+                "VPCSecurityGroups" : [ { "Ref" : "SecurityGroupForRDSInstance" } ]
+            },
+            "DeletionPolicy" : "Delete"
+        }
+    },
+    "Outputs" : {
+        "Host" : {
+            "Value" : { "Fn::If" : [
+                "SnapshotDatabase",
+                { "Fn::GetAtt" : [ "RetainedDatabase", "Endpoint.Address" ] },
+                { "Fn::GetAtt" : [ "DeletedDatabase",  "Endpoint.Address" ] }
+            ] },
+            "Description" : "The generated database host name/binding address to be used to connect."
+        },
+        "Port" : {
+            "Value" : { "Fn::If" : [
+                "SnapshotDatabase",
+                { "Fn::GetAtt" : [ "RetainedDatabase", "Endpoint.Port" ] },
+                { "Fn::GetAtt" : [ "DeletedDatabase",  "Endpoint.Port" ] }
+            ] },
+            "Description" : "The database port to be used to connect."
+        },
+        "EC2AccessGroup" : {
+            "Value" : { "Fn::GetAtt" : [ "SecurityGroupForRDSInstance", "GroupId" ] },
+            "Description" : "The generated Security Group to used by EC2 instances to gain database access."
+        }
+    }
+}

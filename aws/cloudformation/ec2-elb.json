@@ -1,0 +1,174 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "CloudFormation that will create EC2 Elastic Load Balancer AWS resource.",
+    "Parameters" : {
+        "Certificate" : {
+            "Type" : "String",
+            "Default" : "",
+            "Description" : "Amazon Resource Name of the certification to be used by load balancers."
+        },
+        "Policy" : {
+            "AllowedValues" : [ "None", "Proxy" ],
+            "Default" : "None",
+            "Description" : "Whether to the proxy protocol policy .",
+            "Type": "String"
+        },
+        "Scheme": {
+            "Type" : "String",
+            "Description" : "Scheme type of the load balancer, internal or external.",
+            "Default": "internet-facing",
+            "AllowedValues" : [ "internal", "internet-facing" ]
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that the node configuration is being created for."
+        },
+        "SecurityGroupsForLoadBalancer" : {
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>",
+            "Description" : "The security groups the load balancer will belong too."
+        },
+        "SubnetsForLoadBalancer" : {
+            "Type" : "List<AWS::EC2::Subnet::Id>",
+            "Description" : "The public subnets that the instance will be launch in too."
+        },
+        "TargetPort" : {
+            "Type" : "Number",
+            "Description" : "The port number the service will be listening on for the load balancer to connect to."
+        }
+    },
+    "Conditions" : {
+        "IsNonProxy" : { "Fn::Equals" : [ { "Ref" : "Policy" }, "None" ] },
+        "IsProxy" : { "Fn::Equals" : [ { "Ref" : "Policy" }, "Proxy" ] },
+        "IsInternal": { "Fn::Equals" : [ { "Ref" : "Scheme" }, "internal" ] },
+        "IsSecure": { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "Certificate" }, "" ] } ] }
+    },
+    "Resources" : {
+        "ElasticLoadBalancerInstance": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Condition" : "IsNonProxy",
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled" : true,
+                    "Timeout" : 300
+                },
+                "CrossZone" : true,
+                "HealthCheck": {
+                    "Target": { "Fn::Join" : [ ":", [ "TCP", { "Ref" : "TargetPort" } ] ] },
+                    "HealthyThreshold": "2",
+                    "UnhealthyThreshold": "5",
+                    "Timeout": "5",
+                    "Interval": "10"
+                },
+                "LoadBalancerName" : { "Ref" : "Service" },
+                "Listeners": [
+                    {
+                        "InstancePort": { "Ref" : "TargetPort" },
+                        "Protocol": "TCP",
+                        "LoadBalancerPort": "80"
+                    },
+                    { "Fn::If" : [
+                       "IsSecure",
+                       {
+                           "InstancePort": { "Ref" : "TargetPort" },
+                           "Protocol": "SSL",
+                           "LoadBalancerPort": "443",
+                           "SSLCertificateId": { "Ref" : "Certificate" }
+                       },
+                       { "Ref" : "AWS::NoValue" }
+                    ] }
+                ],
+                "Scheme": { "Ref": "Scheme" },
+                "SecurityGroups" : { "Ref" : "SecurityGroupsForLoadBalancer" },
+                "Subnets" : { "Ref" : "SubnetsForLoadBalancer" }
+            }
+        },
+        "ElasticLoadBalancerInstanceWithProxy": {
+            "Type": "AWS::ElasticLoadBalancing::LoadBalancer",
+            "Condition" : "IsProxy",
+            "Properties": {
+                "ConnectionDrainingPolicy": {
+                    "Enabled" : true,
+                    "Timeout" : 300
+                },
+                "CrossZone" : true,
+                "HealthCheck": {
+                    "Target": { "Fn::Join" : [ ":", [ "TCP", { "Ref" : "TargetPort" } ] ] },
+                    "HealthyThreshold": "2",
+                    "UnhealthyThreshold": "5",
+                    "Timeout": "5",
+                    "Interval": "10"
+                },
+                "LoadBalancerName" : { "Ref" : "Service" },
+                "Listeners": [
+                    {
+                        "InstancePort": { "Ref" : "TargetPort" },
+                        "Protocol": "TCP",
+                        "LoadBalancerPort": "80"
+                    },
+                    { "Fn::If" : [
+                       "IsSecure",
+                       {
+                           "InstancePort": { "Ref" : "TargetPort" },
+                           "Protocol": "SSL",
+                           "LoadBalancerPort": "443",
+                           "SSLCertificateId": { "Ref" : "Certificate" }
+                       },
+                       { "Ref" : "AWS::NoValue" }
+                    ] }
+                ],
+                "Policies" : [{
+                    "PolicyName" : "EnableProxyProtocol",
+                    "PolicyType" : "ProxyProtocolPolicyType",
+                    "Attributes" : [{
+                        "Name"  : "ProxyProtocol",
+                        "Value" : "true"
+                    }],
+                    "InstancePorts" : [
+                        { "Fn::If" : [
+                            "IsSecure",
+                            "443",
+                            "80"
+                        ] }
+                    ]
+                }],
+                "Scheme": { "Ref": "Scheme" },
+                "SecurityGroups" : { "Ref" : "SecurityGroupsForLoadBalancer" },
+                "Subnets" : { "Ref" : "SubnetsForLoadBalancer" }
+            }
+        }
+    },
+    "Outputs" : {
+        "Reference" : {
+            "Value" : { "Fn::If" : [
+                "IsNonProxy",
+                { "Ref" : "ElasticLoadBalancerInstance" },
+                { "Ref" : "ElasticLoadBalancerInstanceWithProxy" }
+            ] },
+            "Description" : "The resource reference of the Elastic Load Balancer created"
+        },
+        "CanonicalHostedZoneNameID" : {
+            "Value" : { "Fn::If" : [
+                "IsNonProxy",
+                { "Fn::GetAtt" : [ "ElasticLoadBalancerInstance", "CanonicalHostedZoneNameID" ] },
+                { "Fn::GetAtt" : [ "ElasticLoadBalancerInstanceWithProxy", "CanonicalHostedZoneNameID" ] }
+            ] },
+            "Description" : "The resource canonical hosted zone name ID of the Elastic Load Balancer created"
+        },
+        "CanonicalHostedZoneName" : {
+            "Value" : { "Fn::If" : [
+                "IsNonProxy",
+                { "Fn::If" : [
+                    "IsInternal",
+                    { "Fn::GetAtt" : [ "ElasticLoadBalancerInstance", "DNSName" ] },
+                    { "Fn::GetAtt" : [ "ElasticLoadBalancerInstance", "CanonicalHostedZoneName" ] }
+                ] },
+                { "Fn::If" : [
+                    "IsInternal",
+                    { "Fn::GetAtt" : [ "ElasticLoadBalancerInstanceWithProxy", "DNSName" ] },
+                    { "Fn::GetAtt" : [ "ElasticLoadBalancerInstanceWithProxy", "CanonicalHostedZoneName" ] }
+                ] }
+            ] },
+            "Description" : "The resource canonical hosted zone name of the Elastic Load Balancer created"
+        }
+    }
+}

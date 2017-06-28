@@ -1,0 +1,5 @@
+# Ansible generated files and directories
+*.retry
+
+# Environment export script
+env

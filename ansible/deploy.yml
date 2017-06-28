@@ -1,0 +1,47 @@
+---
+- name: deploy common cloudformation template resources.
+  hosts: 127.0.0.1
+  connection: local
+  gather_facts: False
+  vars:
+    cloudformation_location: "../aws/cloudformation"
+    create_cloudformation_bucket: false
+  tasks:
+    - name: ensure cloudformations are valid
+      command: "python ../python/validate.py {{ cloudformation_location }}"
+      register: command_result
+      failed_when: command_result.rc > 0
+      tags:
+        - aws
+        - cloudformation
+        - validation
+    - name: ensure s3 bucket existance for cloudformation templates.
+      s3_bucket:  # Ideally should include AWS::AccountId and AWS::Region
+        name: "{{ cloudformation_bucket|mandatory }}"
+      when: create_cloudformation_bucket
+      tags:
+        - aws
+        - s3_bucket
+        - creation
+    - name: ensure cloudformation templates are uploaded to s3 bucket.
+      s3:
+        bucket: "{{ cloudformation_bucket }}"
+        object: "{{ item }}.json"
+        src: "{{ cloudformation_location }}/{{ item }}.json"
+        mode: put
+      with_items:
+        - ec2-elb
+        - ec2-instance-auto-scaling-cluster
+        - ec2-instance-public-self-healing
+        - ec2-instance-public
+        - ec2-security-group
+        - ec2-service-cluster
+        - ec2-service-interface
+        - elasticsearch
+        - rds-instance
+        - s3-bucket
+        - s3-cloudfront-website
+      tags:
+        - aws
+        - cloudformation
+        - creation

@@ -1,0 +1,88 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "CloudFormation that will create an AWS simple storage service bucket that can be retained or deleted on tear down.",
+    "Parameters" : {
+        "AccessControl" : {
+            "AllowedValues" : [ "Private", "PublicRead", "PublicReadWrite", "AuthenticatedRead", "LogDeliveryWrite", "BucketOwnerRead", "BucketOwnerFullControl" ],
+            "Default" : "PublicRead",
+            "Description" : "A canned access control list",
+            "Type" : "String"
+        },
+        "Delete" : {
+            "AllowedValues" : [ "Yes", "No" ],
+            "Default" : "No",
+            "Description" : "Whether to delete the s3 bucket when the cloudformation is destroyed.",
+            "Type": "String"
+        },
+        "Name" : {
+            "Description" : "The name of the bucket",
+            "Type" : "String"
+        },
+        "Service" : {
+            "Description" : "The name of the service the bucket is associate with",
+            "Type" : "String"
+        }
+    },
+    "Conditions" : {
+        "DeleteBucket" : { "Fn::Equals" : [ { "Ref" : "Delete" }, "Yes" ] },
+        "RetainBucket" : { "Fn::Equals" : [ { "Ref" : "Delete" }, "No" ] }
+    },
+    "Resources" : {
+        "RetainedBucket" : {
+            "Type" : "AWS::S3::Bucket",
+            "Properties" : {
+                "AccessControl" : { "Ref" : "AccessControl" },
+                "BucketName": { "Ref" : "Name" },
+                "Tags" : [
+                    {
+                        "Key" : "Service",
+                        "Value" : { "Ref" : "Service" }
+                    }
+                ]
+            },
+            "Condition" : "RetainBucket",
+            "DeletionPolicy" : "Retain"
+        },
+        "DeletedBucket" : {
+            "Type" : "AWS::S3::Bucket",
+            "Properties" : {
+                "AccessControl" : { "Ref" : "AccessControl" },
+                "BucketName": { "Ref" : "Name" },
+                "Tags" : [
+                    {
+                        "Key" : "Service",
+                        "Value" : { "Ref" : "Service" }
+                    }
+                ]
+            },
+            "Condition" : "DeleteBucket",
+            "DeletionPolicy" : "Delete"
+        }
+    },
+    "Outputs" : {
+        "Reference" : {
+            "Value" : { "Fn::If" : [
+                "RetainBucket",
+                { "Ref" : "RetainedBucket" },
+                { "Ref" : "DeletedBucket" }
+            ] },
+            "Description" : "The name of the S3 bucket created."
+        },
+        "DomainName" : {
+            "Value" : { "Fn::If" : [
+                "RetainBucket",
+                { "Fn::GetAtt" : [ "RetainedBucket", "DomainName" ] },
+                { "Fn::GetAtt" : [ "DeletedBucket", "DomainName" ] }
+            ] },
+            "Description" : "The domain name of the S3 bucket created."
+        },
+        "WebsiteURL" : {
+            "Value" : { "Fn::If" : [
+                "RetainBucket",
+                { "Fn::GetAtt" : [ "RetainedBucket", "WebsiteURL" ] },
+                { "Fn::GetAtt" : [ "DeletedBucket", "WebsiteURL" ] }
+            ] },
+            "Description" : "The website url of the S3 bucket created."
+        }
+    }
+}

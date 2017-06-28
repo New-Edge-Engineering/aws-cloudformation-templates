@@ -1,0 +1,65 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description" : "Boiler plate CloudFormation that will create an ingress security AWS resource.",
+    "Parameters" : {
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that security group is being created for."
+        },
+        "Description" : {
+            "Type" : "String",
+            "Description" : "The security group description."
+        },
+        "Protocol" : {
+            "Type" : "String",
+            "Description" : "The network protocol."
+        },
+        "From" : {
+            "Type" : "String",
+            "Description" : "The from port."
+        },
+        "To": {
+            "Type": "String",
+            "Description" : "The to port."
+        },
+        "Cidr": {
+            "Type": "String",
+            "Description" : "The CIDR range."
+        },
+        "Network" : {
+            "Type" : "AWS::EC2::VPC::Id",
+            "Description" : "The VPC identifier for resources to be associated with."
+        }
+    },
+    "Resources" : {
+        "Ec2SecurityGroup" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : { "Ref" : "Description" },
+                "SecurityGroupIngress" : [
+                    {
+                        "IpProtocol": { "Ref" : "Protocol" },
+                        "FromPort": { "Ref" : "From" },
+                        "ToPort": { "Ref" : "To" },
+                        "CidrIp": { "Ref" : "Cidr" }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": {
+                            "Ref": "Service"
+                        }
+                    }
+                ],
+                "VpcId" : { "Ref" : "Network" }
+            }
+        }
+    },
+    "Outputs" : {
+        "SecurityGroup" : {
+            "Value" : { "Ref" : "Ec2SecurityGroup" },
+            "Description" : "The generated security group."
+        }
+    }
+}

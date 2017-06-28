@@ -1,0 +1,129 @@
+{
+    "AWSTemplateFormatVersion" : "2010-09-09",
+    "Description": "This creates the resources for a public interface to a service, i.e. a load balancer.",
+    "Parameters": {
+        "Certificate": {
+            "Default": "",
+            "Description": "Amazon Resource Name of the certification to be used by load balancers.",
+            "Type": "String"
+        },
+        "External": {
+          "Type": "String",
+          "Default": "Yes",
+          "Description": "Determines if the interface is external or internal facing.",
+          "AllowedValues" : ["Yes", "No"]
+        },
+        "Fqdn": {
+            "Type": "String",
+            "Description" : "The fully qualified domain name to be associated with the service i.e. www.dev01.newedgeengineering.net, www.test01.newedgeengineering.net, www.newedgeengineering.net, etc"
+        },
+        "HostedZone": {
+            "Type": "String",
+            "Description" : "The hosted zone identifier to associate the server fully qualified domain name with."
+        },
+        "Network" : {
+            "Type" : "AWS::EC2::VPC::Id",
+            "Description" : "The VPC identifier for resources to be deployed within."
+        },
+        "NetworkCIDR" : {
+            "Type" : "String",
+            "AllowedPattern" : "\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}\\.\\d{1,3}/\\d{1,2}",
+            "Description" : "The network Classless Inter-Domain Routing scheme.",
+            "ConstraintDescription" : "Malformed input-Parameter NetworkCIDR must be a valid CIDR block, i.e. 0.0.0.0/0"
+        },
+        "PublicSubnets" : {
+            "Type" : "List<AWS::EC2::Subnet::Id>",
+            "Description" : "The subnets that the instance will be launch in too."
+        },
+        "SecurityGroupsForLoadBalancer" : {
+            "Type" : "List<AWS::EC2::SecurityGroup::Id>",
+            "Description" : "Security groups that the load balancer needs to belong too."
+        },
+        "Service" : {
+            "Type" : "String",
+            "Description" : "The name of the service that these resources are being created for."
+        },
+        "TargetPort" : {
+            "Type" : "Number",
+            "Description" : "The port number that the service cluster will accept incoming requests."
+        }
+    },
+    "Conditions" : {
+        "HasCertificate": { "Fn::Not" : [ { "Fn::Equals" : [ { "Ref" : "Certificate" }, "" ] } ] },
+        "IsExternal": { "Fn::Equals" : [ { "Ref" : "External" }, "Yes" ] }
+    },
+    "Resources" : {
+        "SecurityGroupForLoadBalancer" : {
+            "Type" : "AWS::EC2::SecurityGroup",
+            "Properties" : {
+                "GroupDescription" : { "Fn::Join" : [ " ", [ "Outgoing web request to port(s)", { "Ref" : "TargetPort" } ] ] },
+                "SecurityGroupEgress" : [
+                    {
+                        "IpProtocol": "tcp",
+                        "FromPort": { "Ref" : "TargetPort" },
+                        "ToPort": { "Ref" : "TargetPort" },
+                        "CidrIp": { "Ref" : "NetworkCIDR" }
+                    }
+                ],
+                "Tags": [
+                    {
+                        "Key": "Name",
+                        "Value": { "Fn::Join" : [ " ", [ { "Ref" : "Service" }, "Elastic Load Balancer" ] ] }
+                    }
+                ],
+                "VpcId" : { "Ref" : "Network" }
+            }
+        },
+        "StackForElasticLoadBalancer": {
+            "Type" : "AWS::CloudFormation::Stack",
+            "Properties" : {
+                "TemplateURL" : { "Fn::Join" : [ "", [ "https://s3.amazonaws.com/", { "Ref" : "AWS::AccountId" }, "-", { "Ref" : "AWS::Region"}, "-", "net-newedgeengineering-cloudformation/001-ec2-elb.json" ] ] },
+                "Parameters" : {
+                    "Certificate" : { "Fn::If" : [
+                        "HasCertificate",
+                        { "Ref" : "Certificate" },
+                        { "Ref" : "AWS::NoValue" }
+                    ] },
+                    "Scheme": { "Fn::If": [
+                        "IsExternal",
+                        "internet-facing",
+                        "internal"
+                    ] },
+                    "Service" : { "Ref" : "Service" },
+                    "SecurityGroupsForLoadBalancer" : { "Fn::Join" : [ ",", [ { "Ref" : "SecurityGroupForLoadBalancer" }, { "Fn::Join" : [ ",", { "Ref" : "SecurityGroupsForLoadBalancer" } ] } ] ] },
+                    "SubnetsForLoadBalancer" : { "Fn::Join" : [ ",", { "Ref" : "PublicSubnets" } ] },
+                    "TargetPort" : { "Ref" : "TargetPort" }
+                }
+            }
+        },
+        "RecordSetForDNSName" : {
+            "Type" : "AWS::Route53::RecordSet",
+            "Properties" : {
+                "AliasTarget" : {
+                    "HostedZoneId" : { "Fn::GetAtt" : [ "StackForElasticLoadBalancer", "Outputs.CanonicalHostedZoneNameID" ] },
+                    "DNSName" : { "Fn::GetAtt" : [ "StackForElasticLoadBalancer", "Outputs.CanonicalHostedZoneName" ] }
+                },
+                "Comment" : { "Fn::Join" : [ " ", [  "User friendily name for", { "Ref" : "Service" }, "host" ] ] },
+                "HostedZoneId" : { "Ref" : "HostedZone" },
+                "Name" : { "Ref": "Fqdn" },
+                "Type": "A"
+            },
+            "Condition": "IsExternal"
+        }
+    },
+    "Outputs" : {
+        "ServiceInterface": {
+            "Value" : { "Fn::GetAtt" : [ "StackForElasticLoadBalancer", "Outputs.Reference" ] },
+            "Description" : "Reference to the elastic load balancer that has been created."
+        },
+        "ServiceInterfaceDomain": {
+            "Value": { "Fn::If": [
+                "IsExternal",
+                { "Ref" : "RecordSetForDNSName" },
+                { "Fn::GetAtt": [ "StackForElasticLoadBalancer", "Outputs.CanonicalHostedZoneName" ] }
+
+            ] },
+            "Description": "Fully qualified domain name associated with elastic load balancer."
+        }
+    }
+}
